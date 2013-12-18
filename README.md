@@ -43,6 +43,15 @@ it will exit non-0 with a (hopefully) informative message.
 
 This script uses the rbconfig.py module for credentials.
 
+find_merged_reviews.py
+----------------------
+
+Utility script. Given the path to a local git repository clone, find the
+matching repository in ReviewBoard, then find any open reviews for the
+repository. Print output on any reviews wihch have a diff whose revision is
+present in the master (or specified other) branch of the repository -
+i.e. reviews that have been merged but not marked as submitted.
+
 list_mine.py
 ------------
 
