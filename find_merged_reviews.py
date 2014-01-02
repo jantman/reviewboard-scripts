@@ -3,8 +3,13 @@
 A script using the ReviewBoard API Client
   <https://pypi.python.org/pypi/RBTools/0.2>
   <http://www.reviewboard.org/docs/rbtools/dev/api/>
-to find reviews for a specific branch, at a specific commit,
-and make sure it's shipped.
+To iterate all open reviews for a given repository,
+parse out the new commit hash of each diff in the review,
+and list any reviews with all commit hashes already merged
+into master (or another specified branch).
+
+i.e. try to list all reviews that have been merged but
+not yet marked as submitted.
 
 requires:
 rbtools
@@ -33,8 +38,10 @@ def git_get_origin_uri(path, masterbranch, verbose=False):
 
     :param path: path to the local git checkout to use
     :type path: string
-    :param masterbranch: the ref spec for the master branch to diff against
+    :param masterbranch: the ref spec for the master branch to diff against, in format remote/branch
     :type masterbranch: string
+    :param verbose: print verbose output to STDOUT
+    :type verbose: boolean (default False)
 
     :returns: tuple of (uri, Repo object)
     """
@@ -49,11 +56,46 @@ def git_get_origin_uri(path, masterbranch, verbose=False):
         print("\tremote name is %s" % remote_name)
     uri = None
     remote = repo.remote(remote_name)
+    remote.fetch()
     uri = remote.url
     if verbose:
         print("\tremote uri is %s" % uri)
 
     return (repo, uri)
+
+def is_diff_in_branch(diff, repo, masterbranch, verbose=False):
+    """
+    Return True if the given diff is already in (merged into)
+    the specified branch, else return False.
+
+    :param diff: ReviewBoard diff object
+    :type diff: rbtools.api.resource.DiffResource
+    :param repo: Git Repository to check
+    :type repo: git.repo.base.Repo
+    :param masterbranch: the ref spec for the master branch to diff against, in format remote/branch
+    :type masterbranch: string
+    :param verbose: print verbose output to STDOUT
+    :type verbose: boolean (default False)
+
+    :rtype: boolean
+    :returns: True if diff is merged into branch_name, False otherwise
+    """
+    remote_name, remote_branch_name = masterbranch.split("/")
+    ref = repo.remote(remote_name).refs[remote_branch_name]
+    for f in diff.get_files():
+        p = f.get_patch().data
+        fname = f.fields['dest_file'] # there's also source_file, that we need for removed files
+        file_sha = f.fields['dest_detail']
+        src_rev = f.fields['source_revision'] # "PRE-CREATION" if new file
+        # TODO - LEFT OFF HERE
+        if verbose:
+            print("\tfile %s (%s)" % (fname, file_sha))
+        if fname not in ref.commit.tree:
+            if verbose:
+                print("\t-> not in git tree; return False")
+            return False
+        break
+    return False
 
 def main():
     """
@@ -108,11 +150,11 @@ def main():
     # (repo object, uri string) for git-dir
     (repo, repo_uri) = git_get_origin_uri(options.git_path, options.master_branch, verbose=VERBOSE)
 
-    repo = get_repository_by_uri(root, repo_uri, match_path_end=options.pathend, verbose=VERBOSE)
-    if repo is None:
-        raise SystemExit("Could not find ReviewBoard repository with uri '%s'" % repo_origin)
+    rb_repo = get_repository_by_uri(root, repo_uri, match_path_end=options.pathend, verbose=VERBOSE)
+    if rb_repo is None:
+        raise SystemExit("Could not find ReviewBoard repository with uri '%s'" % repo_uri)
 
-    reviews = get_reviews_for_repo(root, repo.id, only_open=True, verbose=VERBOSE)
+    reviews = get_reviews_for_repo(root, rb_repo.id, only_open=True, verbose=VERBOSE)
 
     if len(reviews) == 0:
         print("No open reviews found for repository %s (%s)" % (repo_origin, options.git_path))
@@ -122,54 +164,14 @@ def main():
         if VERBOSE:
             print("checking review %d" % rev.id)
         diff = get_latest_diff_for_review(rev, verbose=VERBOSE)
-        for f in diff.get_files():
-            print type(f)
-            print dir(f)
-            pprint.pprint(f.get_diff_data())
-            pprint.pprint(f.get_patch())
-            break
-        print "#################################################"
-        """
-        d = diff.get_patch()
-        print d
-        print type(d)
-        print dir(d)
-        pprint.pprint(d)
-        """
-        return False
-
-    return False
-
-    # get the latest diff for the review
-    diff_time = parse_rb_time_string(diffs['timestamp'])
-    if diff_time is None:
-        print("ERROR: could not parse timestamp for diff %d" % diff.id)
-        sys.exit(2)
-
-    diffs_ok = True
-    for f in git_diffs:
-        if f not in diffs['patches']:
-            print("ERROR: file '%s' found in git diff but not reviewboard diff." % f)
-            diffs_ok = False
+        res = is_diff_in_branch(diff, repo, options.master_branch, verbose=VERBOSE)
+        if res:
+            print("MERGED: Review %d appears to be merged to %s but not submitted." % (rev.id, options.master_branch))
             continue
-        if compare_diffs(git_diffs[f], diffs['patches'][f], verbose=VERBOSE) is False:
-            print("ERROR: git and reviewboard diffs not same for file '%s'" % f)
-            diffs_ok = False
-    for f in diffs['patches']:
-        if f not in git_diffs:
-            print("ERROR: file '%s' found in reviewboard diff but not git diff." % f)
-            diffs_ok = False
-
-    if diffs_ok is False:
-        sys.exit(1)
-
-    # check for shipits
-    if len(shipits) < options.shipits:
-        print("ERROR: Only found %d shipit(s) since last diff upload, %d are required" % (len(shipits), options.shipits))
-        sys.exit(1)
-    else:
-        print("SHIPPED: Since last diff upload, shipped by: %s" % ", ".join(shipits))
-    sys.exit(0)
+        if VERBOSE:
+            print("Review %d does NOT appear to be merged yet." % rev.id)
+        return True # DEBUG - only look at one
+    return True
 
 if __name__ == '__main__':
     # if the program is executed directly parse the command line options
