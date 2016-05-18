@@ -1,7 +1,7 @@
 reviewboard-scripts
 ===================
 
-[![Project Status: Active - The project has reached a stable, usable state and is being actively developed.](http://www.repostatus.org/badges/0.1.0/active.svg)](http://www.repostatus.org/#active)
+[![Project Status: Unsupported – The project has reached a stable, usable state but the author(s) have ceased all work on it. A new maintainer may be desired.](http://www.repostatus.org/badges/latest/unsupported.svg)](http://www.repostatus.org/#unsupported)
 
 Collection of scripts that use the ReviewBoard python client (RBClient) to
 perform various tasks with ReviewBoard.
